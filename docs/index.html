@@ -1,0 +1,289 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'none'; img-src 'self'; object-src 'none'; base-uri 'none'; form-action 'none'"
+    />
+    <meta name="referrer" content="no-referrer" />
+    <meta
+      name="description"
+      content="A synthetic implied-volatility grid. Price invented European calls, invert each quote, and inspect numerical limits."
+    />
+    <title>foldline / implied volatility, unfolded</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script type="module" src="src/app.js"></script>
+  </head>
+  <body>
+    <main>
+      <header>
+        <a class="wordmark" href="./">foldline <span>/ 14</span></a
+        ><span class="eyebrow">Invented quotes · European calls</span>
+      </header>
+      <section class="hero">
+        <div>
+          <p class="eyebrow">Black-Scholes / inverse price lab</p>
+          <h1>A price in.<br />A volatility out.</h1>
+        </div>
+        <p>
+          Build a synthetic quote grid. Recover its implied volatility. See
+          where the numbers stop telling a clean story.
+        </p>
+      </section>
+      <form id="controls" novalidate>
+        <label
+          >Base σ / % per √year<input
+            id="atm"
+            type="number"
+            min="18"
+            max="40"
+            step="1"
+            value="24"
+            required /></label
+        ><label
+          >Skew / exponent weight<input
+            id="skew"
+            type="number"
+            min="-0.3"
+            max="0.3"
+            step="0.01"
+            value="-0.18"
+            required /></label
+        ><label
+          >Curvature / exponent weight<input
+            id="curve"
+            type="number"
+            min="-0.25"
+            max="0.25"
+            step="0.01"
+            value="0.12"
+            required /></label
+        ><label
+          >Term / exponent per year<input
+            id="term"
+            type="number"
+            min="-0.5"
+            max="0.5"
+            step="0.01"
+            value="0.04"
+            required /></label
+        ><button type="submit">
+          Build grid <span aria-hidden="true">↗</span>
+        </button>
+      </form>
+      <p id="state" class="status" role="status" aria-live="polite"></p>
+      <p class="scope">
+        Spot 100 · rate 0 · dividend yield 0 · years to expiry · per underlying
+        unit, no currency. Chosen volatility → Black-Scholes call price →
+        numerical inverse. This is a round trip, not calibration to a market.
+      </p>
+      <section class="metrics" aria-label="Applied grid checks">
+        <div>
+          <span>Quotes recovered</span><strong id="recovered"></strong
+          ><small>Bisection on 0..300% σ</small>
+        </div>
+        <div>
+          <span>Largest price residual</span><strong id="residual"></strong
+          ><small>Absolute price units</small>
+        </div>
+        <div>
+          <span>Largest σ recovery error</span><strong id="recovery"></strong
+          ><small>Percentage points, vs invented σ</small>
+        </div>
+      </section>
+      <section class="band">
+        <div class="section-head">
+          <h2>01 / The implied-volatility grid</h2>
+          <span>Choose a cell to inspect</span>
+        </div>
+        <p class="muted">
+          Numbers are recovered annualized σ, in %. Rows are expiry, columns are
+          strike. Scroll the grid for all strikes on small screens.
+        </p>
+        <div
+          class="scroll"
+          tabindex="0"
+          role="region"
+          aria-label="Implied volatility grid, horizontally scrollable"
+        >
+          <table class="matrix">
+            <caption class="sr-only">
+              Recovered implied volatility percent by expiry and strike
+            </caption>
+            <thead id="matrix-head"></thead>
+            <tbody id="matrix"></tbody>
+          </table>
+        </div>
+        <p class="legend">
+          <span class="swatch low"></span>5%
+          <span class="swatch high"></span>115% · fixed color scale, numbers
+          take priority. The outlined cell is selected.
+        </p>
+        <div class="diagnostics">
+          <p><b id="vertical"></b><span>Vertical spread failures / 30</span></p>
+          <p><b id="butterfly"></b><span>Butterfly failures / 25</span></p>
+          <p><b id="calendar"></b><span>Calendar failures / 28</span></p>
+        </div>
+        <p class="muted">
+          Finite-grid tests only. A zero count is not a proof of an
+          arbitrage-free continuous surface. No interpolation or extrapolation
+          is supplied. Quote probing below does not change these counts.
+        </p>
+      </section>
+      <section class="band">
+        <div class="section-head">
+          <h2>02 / One expiry, across strikes</h2>
+          <span id="slice-label"></span>
+        </div>
+        <svg
+          id="smile"
+          role="img"
+          aria-label="Selected expiry implied volatility versus strike"
+        ></svg>
+        <p class="muted">
+          Dots are solved quotes. Connecting segments are a visual guide, not an
+          interpolation model. Vertical scale follows this slice; heatmap colors
+          keep their fixed scale.
+        </p>
+      </section>
+      <section class="band">
+        <div class="section-head">
+          <h2>03 / Probe a single quote</h2>
+          <span id="selection"></span>
+        </div>
+        <p class="muted">
+          Edit the call price, then solve it. This probe stays separate from the
+          generated grid. Choosing a cell or building a grid resets the probe to
+          its full-precision generated price.
+        </p>
+        <form id="probe" novalidate>
+          <label
+            >Call price / price units<input
+              id="quote"
+              type="number"
+              step="any"
+              required /></label
+          ><button type="submit">
+            Invert price <span aria-hidden="true">↗</span></button
+          ><button type="button" id="reset" class="secondary">
+            Use grid price
+          </button>
+        </form>
+        <p id="probe-state" class="status" role="status" aria-live="polite"></p>
+        <p id="probe-message" class="callout"></p>
+        <div class="audit" id="audit"></div>
+        <p class="muted">
+          Vega is price units per 1.00 σ, not per percentage point. 1/vega is a
+          local sensitivity: σ change per price unit. It is not a
+          finite-price-change prediction. Low vega amplifies rounding and quote
+          noise. Tight bracket width is numerical precision, not economic
+          certainty.
+        </p>
+      </section>
+      <details class="band">
+        <summary>All 35 quotes / numerical ledger</summary>
+        <p class="muted">
+          Scroll for all fields. Prices use 8 decimals; σ uses 6
+          percentage-point decimals. Tiny residuals use scientific notation.
+        </p>
+        <div
+          class="scroll ledger-scroll"
+          tabindex="0"
+          role="region"
+          aria-label="Quote ledger, scrollable"
+        >
+          <table class="ledger">
+            <thead>
+              <tr>
+                <th scope="col">T / years</th>
+                <th scope="col">Strike</th>
+                <th scope="col">Invented σ %</th>
+                <th scope="col">Call price</th>
+                <th scope="col">Solved σ %</th>
+                <th scope="col">Price residual</th>
+                <th scope="col">Steps</th>
+              </tr>
+            </thead>
+            <tbody id="ledger"></tbody>
+          </table>
+        </div>
+      </details>
+      <section class="band">
+        <div class="section-head">
+          <h2>04 / What is being assumed</h2>
+          <span>No fit. No forecast.</span>
+        </div>
+        <div class="explain">
+          <article>
+            <h3>A deliberately chosen shape.</h3>
+            <p>
+              x = (K - 100) / 15<br />σ(K,T) = a × exp(s × x + c × x² + d × (T -
+              1))
+            </p>
+            <p>
+              a is the base σ at K = 100, T = 1. The weights control a shape,
+              not an estimated model. Seven strikes 85..115 and five expiries
+              0.25..2 years make 35 synthetic calls. Rate and yield are both
+              zero. σ is annualized in square-root-year units.
+            </p>
+          </article>
+          <article>
+            <h3>One inverse, with limits.</h3>
+            <p>
+              C = 100 × Φ(d₁) - K × Φ(d₂)<br />d₁ = ln(100/K)/(σ√T) + σ√T/2<br />d₂
+              = d₁ - σ√T
+            </p>
+            <p>
+              Invert on σ = 0..3 using bisection. Stop at bracket width ≤ 1e-10
+              and require price residual ≤ 1e-8. Exact lower bound means a
+              zero-volatility limit; price 100 is an infinite-volatility limit.
+              An interior price may exceed the 300% solver cap without violating
+              theoretical bounds. Within 1e-8 price units above the floor, this
+              tool declines to report an unreliable numerical σ.
+            </p>
+          </article>
+          <article>
+            <h3>Checks, not a certificate.</h3>
+            <p>
+              Vertical spreads require adjacent call-price slopes in [-1, 0].
+              Equal-spaced butterfly prices must be nonnegative. Calendar prices
+              must not fall with expiry at a fixed strike here because r = q =
+              0. Tolerance is 1e-9 in slope or price units as appropriate.
+            </p>
+            <p>
+              These chosen shapes can fail those checks. Between-grid behavior,
+              wings and full continuous arbitrage constraints are untested. No
+              market data, bid/ask spreads, dividends, American exercise,
+              calibration, local volatility or trading. Educational model, not
+              investment advice.
+            </p>
+          </article>
+        </div>
+      </section>
+      <p class="reading">
+        Background:
+        <a
+          href="https://www.macroption.com/black-scholes-formula/"
+          rel="noreferrer"
+          >Black-Scholes formulas</a
+        >
+        ·
+        <a
+          href="https://docs.scipy.org/doc/scipy/reference/generated/scipy.optimize.bisect.html"
+          rel="noreferrer"
+          >Bisection</a
+        >
+        ·
+        <a href="https://arxiv.org/html/1204.0646" rel="noreferrer"
+          >Surface arbitrage constraints</a
+        >. No third-party code, data, fonts or assets bundled.
+      </p>
+      <footer>
+        <span>foldline / Java core + local browser mirror</span
+        ><span>MIT OR Apache-2.0 · No account, upload or storage</span>
+      </footer>
+    </main>
+  </body>
+</html>
